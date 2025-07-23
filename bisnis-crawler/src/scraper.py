@@ -8,13 +8,13 @@ class Scraper:
     def check_connection(self, url=None, retries=3):
         for attempt in range(1, retries + 1):
             with sync_playwright() as p:
-                browser = p.chromium.launch(headless=True)
+                browser = p.chromium.launch(headless=False)
                 context = browser.new_context()
                 page = context.new_page()
                 try:
                     target_url = url if url else self.BASE_URL
-                    page.goto(target_url, timeout=30000)
-                    page.wait_for_selector("body", timeout=30000)
+                    page.goto(target_url, timeout=60000)
+                    page.wait_for_selector("body", timeout=60000)
                     print(f"Connection to {target_url} successful. Page title:", page.title())
                     page.close()
                     browser.close()
@@ -37,7 +37,7 @@ class Scraper:
         current_date = datetime.strptime(start_date, "%Y-%m-%d")
         end_date_dt = datetime.strptime(end_date, "%Y-%m-%d")
         with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True)
+            browser = p.chromium.launch(headless=False)
             context = browser.new_context()
             while current_date <= end_date_dt:
                 date_articles = []
@@ -46,7 +46,13 @@ class Scraper:
                 while True:
                     url = f"{self.BASE_URL}/index?categoryId=0&type=indeks&date={date_str}&page={page}"
                     page_obj = context.new_page()
-                    page_obj.goto(url)
+                    try:
+                        page_obj.goto(url, timeout=30000, wait_until="domcontentloaded")
+                        page_obj.wait_for_selector("div.artItem", timeout=15000, state="attached")
+                    except Exception as e:
+                        print(f"Failed to load indeks page: {url}\nError: {e}")
+                        page_obj.close()
+                        break
                     items = page_obj.query_selector_all("div.artItem")
                     if not items:
                         page_obj.close()
@@ -90,7 +96,14 @@ class Scraper:
             browser = p.chromium.launch(headless=True)
             context = browser.new_context()
             page_obj = context.new_page()
-            page_obj.goto(self.BASE_URL)
+            try:
+                page_obj.goto(self.BASE_URL, timeout=30000, wait_until="domcontentloaded")
+                page_obj.wait_for_selector("div.artItem", timeout=15000, state="attached")
+            except Exception as e:
+                print(f"Failed to load homepage: {self.BASE_URL}\nError: {e}")
+                page_obj.close()
+                browser.close()
+                return []
             items = page_obj.query_selector_all("div.artItem")
             for item in tqdm(items, desc="Scraping latest articles", total=max_articles):
                 if len(articles) >= max_articles:
@@ -127,7 +140,8 @@ class Scraper:
         except Exception as e:
             print(f"Failed to load article: {link}\nError: {e}")
             content = ""
-        page_obj.close()
+        finally:
+            page_obj.close()
         return content
 
     def _parse_date(self, date_str):
